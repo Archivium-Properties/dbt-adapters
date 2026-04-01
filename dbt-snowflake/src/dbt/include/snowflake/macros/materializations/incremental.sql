@@ -75,6 +75,7 @@
   {%- set catalog_relation = adapter.build_catalog_relation(config.model) -%}
 
   {%- set is_catalog_linked_db = snowflake__is_catalog_linked_database(relation=none, catalog_relation=catalog_relation) -%}
+  {{ log("DEBUG is_catalog_linked_db=" ~ is_catalog_linked_db ~ " catalog_relation=" ~ catalog_relation ~ " catalog_linked_database=" ~ catalog_relation.catalog_linked_database, info=True) }}
 
   {%- set target_relation = api.Relation.create(
 	identifier=identifier,
@@ -84,7 +85,24 @@
 	table_format=catalog_relation.table_format,
   ) -%}
 
-  {% set existing_relation = load_relation(this) %}
+  {%- if catalog_relation.catalog_linked_database_type is defined
+      and catalog_relation.catalog_linked_database_type -%}
+    {%- set target_relation = target_relation.quote_for_catalog_linked_database() -%}
+  {%- endif -%}
+
+  {#-- For catalog-linked databases, load_relation needs lowercase identifiers to find existing tables --#}
+  {% if is_catalog_linked_db %}
+    {{ log("DEBUG incremental: searching for existing relation in catalog-linked DB", info=True) }}
+    {{ log("DEBUG   database=" ~ target_relation.database ~ " schema=" ~ target_relation.schema ~ " identifier=" ~ target_relation.identifier, info=True) }}
+    {% set existing_relation = adapter.get_relation(
+        database=target_relation.database,
+        schema=target_relation.schema,
+        identifier=target_relation.identifier
+    ) %}
+    {{ log("DEBUG   existing_relation=" ~ existing_relation, info=True) }}
+  {% else %}
+    {% set existing_relation = load_relation(this) %}
+  {% endif %}
 
   {#-- The temp relation will be a view (faster) or temp table, depending on upsert/merge strategy --#}
   {%- set unique_key = config.get('unique_key') -%}
@@ -92,7 +110,9 @@
   {% set tmp_relation_type = dbt_snowflake_get_tmp_relation_type(incremental_strategy, unique_key, language) %}
 
   {% if is_catalog_linked_db %}
+    {#-- Temp table must also use lowercase identifiers in catalog-linked databases --#}
     {% set tmp_relation = make_temp_relation(this).incorporate(type=tmp_relation_type, catalog=catalog_relation.catalog_name, is_table=true) %}
+    {% set tmp_relation = tmp_relation.quote_for_catalog_linked_database() %}
   {% else %}
     {% set tmp_relation = make_temp_relation(this).incorporate(type=tmp_relation_type) %}
   {% endif %}

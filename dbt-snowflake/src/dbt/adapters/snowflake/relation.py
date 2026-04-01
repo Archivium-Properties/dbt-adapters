@@ -74,6 +74,33 @@ class SnowflakeRelation(BaseRelation):
     def is_iceberg_format(self) -> bool:
         return self.table_format == constants.ICEBERG_TABLE_FORMAT
 
+    def _is_exactish_match(self, field: ComponentName, value: str) -> bool:
+        """Case-insensitive matching for Snowflake identifiers.
+
+        Snowflake identifiers are case-insensitive regardless of quoting.
+        Quoting preserves case for SQL generation but does not change identity.
+        The base class does exact comparison when quote_policy is True, which
+        breaks matching for catalog-linked databases where relations are stored
+        with lowercase values but searched with uppercase.
+        """
+        return self.path.get_lowered_part(field) == value.lower()
+
+    def quote_for_catalog_linked_database(self) -> "SnowflakeRelation":
+        """Return a new relation with lowercase quoted schema and identifier.
+
+        dbt internally uses UPPERCASE identifiers (Snowflake's default).
+        External-catalog-linked databases (Glue, Unity, Polaris) require
+        lowercase identifiers. This method bridges the two worlds:
+        - Lowercases schema and identifier for Snowflake SQL generation
+        - Quotes them to prevent Snowflake from uppercasing back
+
+        The original relation (uppercase, for dbt matching) is not mutated.
+        """
+        return self.replace_path(
+            schema=self.schema.lower() if self.schema else self.schema,
+            identifier=self.identifier.lower() if self.identifier else self.identifier,
+        ).quote(schema=True, identifier=True)
+
     @classproperty
     def DynamicTable(cls) -> str:
         return str(SnowflakeRelationType.DynamicTable)

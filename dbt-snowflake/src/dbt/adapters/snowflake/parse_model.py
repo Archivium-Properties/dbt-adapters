@@ -16,7 +16,8 @@ def auto_refresh(model: RelationConfig) -> Optional[bool]:
 def max_data_extension_time_in_days(model: RelationConfig) -> Optional[int]:
     return (
         model.config.get(
-            SnowflakeIcebergTableRelationParameters.max_data_extension_time_in_days, False
+            SnowflakeIcebergTableRelationParameters.max_data_extension_time_in_days,
+            False,
         )
         if model.config
         else None
@@ -50,8 +51,9 @@ def catalog_name(model: RelationConfig) -> Optional[str]:
         return None
 
     if _catalog := model.config.get(CATALOG_INTEGRATION_MODEL_CONFIG_NAME):
-        # make catalog_name case-insensitive
-        return _catalog.upper()
+        # Return as-is — the catalog client stores names from catalogs.yml
+        # without normalization, so the lookup must match exactly.
+        return _catalog
 
     _table_format = table_format(model)
     if _table_format == constants.ICEBERG_TABLE_FORMAT:

@@ -4,8 +4,17 @@ from typing import Mapping, Any, Optional, List, Union, Dict, FrozenSet, Tuple
 
 from dbt.adapters.base.impl import AdapterConfig, ConstraintSupport
 from dbt.adapters.base.meta import available
-from dbt.adapters.capability import CapabilityDict, CapabilitySupport, Support, Capability
-from dbt.adapters.catalogs import CatalogRelation, CatalogIntegration, CatalogIntegrationConfig
+from dbt.adapters.capability import (
+    CapabilityDict,
+    CapabilitySupport,
+    Support,
+    Capability,
+)
+from dbt.adapters.catalogs import (
+    CatalogRelation,
+    CatalogIntegration,
+    CatalogIntegrationConfig,
+)
 from dbt.adapters.contracts.relation import RelationConfig
 from dbt.adapters.sql import SQLAdapter
 from dbt.adapters.events.types import ColTypeChange
@@ -101,10 +110,18 @@ class SnowflakeAdapter(SQLAdapter):
 
     _capabilities: CapabilityDict = CapabilityDict(
         {
-            Capability.SchemaMetadataByRelations: CapabilitySupport(support=Support.Full),
-            Capability.TableLastModifiedMetadata: CapabilitySupport(support=Support.Full),
-            Capability.TableLastModifiedMetadataBatch: CapabilitySupport(support=Support.Full),
-            Capability.GetCatalogForSingleRelation: CapabilitySupport(support=Support.Full),
+            Capability.SchemaMetadataByRelations: CapabilitySupport(
+                support=Support.Full
+            ),
+            Capability.TableLastModifiedMetadata: CapabilitySupport(
+                support=Support.Full
+            ),
+            Capability.TableLastModifiedMetadataBatch: CapabilitySupport(
+                support=Support.Full
+            ),
+            Capability.GetCatalogForSingleRelation: CapabilitySupport(
+                support=Support.Full
+            ),
             Capability.MicrobatchConcurrency: CapabilitySupport(support=Support.Full),
         }
     )
@@ -195,15 +212,21 @@ class SnowflakeAdapter(SQLAdapter):
         self._use_warehouse(warehouse)
         return previous
 
-    def post_model_hook(self, config: Mapping[str, Any], context: Optional[str]) -> None:
+    def post_model_hook(
+        self, config: Mapping[str, Any], context: Optional[str]
+    ) -> None:
         if context is not None:
             self._use_warehouse(context)
 
     def list_schemas(self, database: str) -> List[str]:
         try:
-            results = self.execute_macro(LIST_SCHEMAS_MACRO_NAME, kwargs={"database": database})
+            results = self.execute_macro(
+                LIST_SCHEMAS_MACRO_NAME, kwargs={"database": database}
+            )
         except DbtDatabaseError as exc:
-            msg = f"Database error while listing schemas in database " f'"{database}"\n{exc}'
+            msg = (
+                f'Database error while listing schemas in database "{database}"\n{exc}'
+            )
             raise DbtRuntimeError(msg)
         # this uses 'show terse schemas in database', and the column name we
         # want is 'name'
@@ -303,7 +326,9 @@ class SnowflakeAdapter(SQLAdapter):
         kwargs = {"schema_relation": schema_relation}
 
         try:
-            schema_objects = self.execute_macro(LIST_RELATIONS_MACRO_NAME, kwargs=kwargs)
+            schema_objects = self.execute_macro(
+                LIST_RELATIONS_MACRO_NAME, kwargs=kwargs
+            )
         except DbtDatabaseError as exc:
             # if the schema doesn't exist, we just want to return.
             # Alternatively, we could query the list of schemas before we start
@@ -314,11 +339,21 @@ class SnowflakeAdapter(SQLAdapter):
                 return []
             raise
 
-        columns = ["database_name", "schema_name", "name", "kind", "is_dynamic", "is_iceberg"]
+        columns = [
+            "database_name",
+            "schema_name",
+            "name",
+            "kind",
+            "is_dynamic",
+            "is_iceberg",
+        ]
         schema_objects = schema_objects.rename(
             column_names=[col.lower() for col in schema_objects.column_names]
         )
-        return [self._parse_list_relations_result(obj) for obj in schema_objects.select(columns)]
+        return [
+            self._parse_list_relations_result(obj)
+            for obj in schema_objects.select(columns)
+        ]
 
     def _parse_list_relations_result(self, result: "agate.Row") -> SnowflakeRelation:
         database, schema, identifier, relation_type, is_dynamic, is_iceberg = result
@@ -374,14 +409,19 @@ class SnowflakeAdapter(SQLAdapter):
             grantee = row["grantee_name"]
             granted_to = row["granted_to"]
             privilege = row["privilege"]
-            if privilege != "OWNERSHIP" and granted_to not in ["SHARE", "DATABASE_ROLE"]:
+            if privilege != "OWNERSHIP" and granted_to not in [
+                "SHARE",
+                "DATABASE_ROLE",
+            ]:
                 if privilege in grants_dict.keys():
                     grants_dict[privilege].append(grantee)
                 else:
                     grants_dict.update({privilege: [grantee]})
         return grants_dict
 
-    def timestamp_add_sql(self, add_to: str, number: int = 1, interval: str = "hour") -> str:
+    def timestamp_add_sql(
+        self, add_to: str, number: int = 1, interval: str = "hour"
+    ) -> str:
         return f"DATEADD({interval}, {number}, {add_to})"
 
     def submit_python_job(self, parsed_model: dict, compiled_code: str):
@@ -460,7 +500,9 @@ CREATE OR REPLACE PROCEDURE {proc_name} ()
 CALL {proc_name}();
 
             """
-        response, _ = self.execute(python_stored_procedure, auto_begin=False, fetch=False)
+        response, _ = self.execute(
+            python_stored_procedure, auto_begin=False, fetch=False
+        )
         if not use_anonymous_sproc:
             self.execute(
                 f"drop procedure if exists {proc_name}()",
@@ -485,7 +527,6 @@ CALL {proc_name}();
         }
 
         if config and hasattr(config, "_extra"):
-
             catalog = config._extra.get("catalog")
 
             if _table_format := config._extra.get("table_format"):  # type:ignore
@@ -505,8 +546,33 @@ CALL {proc_name}();
 
         return run_info
 
+    def get_column_schema_from_query(self, sql: str) -> List["SnowflakeColumn"]:
+        """Get columns with full precision from cursor.description.
+
+        The base class uses data_type_code_to_name() which returns 'FIXED' for
+        all numeric types, losing precision/scale. Snowflake's cursor.description
+        includes precision and scale per PEP-249 — use them directly.
+        """
+        from dbt.adapters.snowflake.column import SnowflakeColumn
+
+        _, cursor = self.connections.add_select_query(sql)
+        columns = []
+        for column_name, type_code, _, _, precision, scale, _ in cursor.description:
+            type_name = self.connections.data_type_code_to_name(type_code)
+            if type_name == "FIXED" and precision is not None:
+                # Preserve precision/scale: FIXED(18,2) → NUMBER(18,2)
+                type_str = f"NUMBER({precision},{scale or 0})"
+            elif type_name == "TEXT":
+                type_str = "VARCHAR(16777216)"
+            else:
+                type_str = type_name
+            columns.append(SnowflakeColumn.from_description(column_name, type_str))
+        return columns
+
     @available
-    def build_catalog_relation(self, model: RelationConfig) -> Optional[CatalogRelation]:
+    def build_catalog_relation(
+        self, model: RelationConfig
+    ) -> Optional[CatalogRelation]:
         """
         Builds a relation for a given configuration.
 
@@ -538,14 +604,16 @@ CALL {proc_name}();
         quoting = relation.quote_policy
         schema = f'"{relation.schema}"' if quoting.schema else relation.schema
         database = f'"{relation.database}"' if quoting.database else relation.database
-        show_sql = (
-            f"show dynamic tables like '{relation.identifier}' in schema {database}.{schema}"
-        )
+        show_sql = f"show dynamic tables like '{relation.identifier}' in schema {database}.{schema}"
         res, dt_table = self.execute(show_sql, fetch=True)
         if res.code != "SUCCESS":
-            raise DbtRuntimeError(f"Could not get dynamic query metadata: {show_sql} failed")
+            raise DbtRuntimeError(
+                f"Could not get dynamic query metadata: {show_sql} failed"
+            )
         # normalize column names to lower case, this still preserves column order
-        dt_table = dt_table.rename(column_names=[name.lower() for name in dt_table.column_names])
+        dt_table = dt_table.rename(
+            column_names=[name.lower() for name in dt_table.column_names]
+        )
 
         # Select columns that exist in the result set
         # initialization_warehouse may not be available in all Snowflake accounts
@@ -562,7 +630,9 @@ CALL {proc_name}();
         ]
         available_columns = [c.lower() for c in dt_table.column_names]
         if "initialization_warehouse" in available_columns:
-            base_columns.insert(base_columns.index("warehouse") + 1, "initialization_warehouse")
+            base_columns.insert(
+                base_columns.index("warehouse") + 1, "initialization_warehouse"
+            )
         if "scheduler" in available_columns:
             base_columns.append("scheduler")
 
@@ -572,12 +642,19 @@ CALL {proc_name}();
             is_transient = self._query_dynamic_table_transient_status(relation)
             # choosing a future proof column name
             selected = selected.compute(
-                [("transient", agate.Formula(agate.Boolean(), lambda row: is_transient))]
+                [
+                    (
+                        "transient",
+                        agate.Formula(agate.Boolean(), lambda row: is_transient),
+                    )
+                ]
             )
 
         return {"dynamic_table": selected}
 
-    def _query_dynamic_table_transient_status(self, relation: SnowflakeRelation) -> bool:
+    def _query_dynamic_table_transient_status(
+        self, relation: SnowflakeRelation
+    ) -> bool:
         """
         Query SHOW TABLES to determine if a dynamic table is transient.
 
@@ -587,7 +664,9 @@ CALL {proc_name}();
         quoting = relation.quote_policy
         schema = f'"{relation.schema}"' if quoting.schema else relation.schema
         database = f'"{relation.database}"' if quoting.database else relation.database
-        show_tables_sql = f"show tables like '{relation.identifier}' in schema {database}.{schema}"
+        show_tables_sql = (
+            f"show tables like '{relation.identifier}' in schema {database}.{schema}"
+        )
         _, tables_table = self.execute(show_tables_sql, fetch=True)
         if len(tables_table.rows) > 0:
             tables_table = tables_table.rename(
@@ -604,7 +683,9 @@ CALL {proc_name}();
         for column_name, reference_column in reference_columns.items():
             target_column = target_columns.get(column_name)
 
-            if target_column is not None and target_column.can_expand_to(reference_column):
+            if target_column is not None and target_column.can_expand_to(
+                reference_column
+            ):
                 col_string_size = reference_column.string_size()
                 new_type = self.Column.string_type(col_string_size)
                 if collation := target_column.collation:

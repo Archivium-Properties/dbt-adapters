@@ -7,9 +7,12 @@
 
   {% set grant_config = config.get('grants') %}
 
+  {%- set catalog_relation = adapter.build_catalog_relation(config.model) -%}
+  {%- set is_catalog_linked = catalog_relation.catalog_linked_database_type is defined
+      and catalog_relation.catalog_linked_database_type -%}
+
   {%- set existing_relation = adapter.get_relation(database=database, schema=schema, identifier=identifier) -%}
 
-  {%- set catalog_relation = adapter.build_catalog_relation(config.model) -%}
   {%- set target_relation = api.Relation.create(
 	identifier=identifier,
 	schema=schema,
@@ -17,6 +20,13 @@
 	type='table',
 	table_format=catalog_relation.table_format
    ) -%}
+
+  {#-- External-catalog-linked databases require lowercase quoted identifiers.
+       quote_for_catalog_linked_database() lowercases AND quotes schema+identifier
+       for Snowflake SQL generation while dbt keeps its uppercase copies. --#}
+  {%- if is_catalog_linked -%}
+    {%- set target_relation = target_relation.quote_for_catalog_linked_database() -%}
+  {%- endif -%}
 
   {{ run_hooks(pre_hooks) }}
 

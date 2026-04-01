@@ -299,23 +299,30 @@ as (
 {%- set sql_header = config.get('sql_header', none) -%}
 {{ sql_header if sql_header is not none }}
 
-{# Step 2a: Check if relation exists and drop if necessary (CLD doesn't support CREATE OR REPLACE) #}
-{% set existing_relation = adapter.get_relation(database=relation.database, schema=relation.schema, identifier=relation.identifier) %}
-{% if existing_relation %}
-    drop table if exists {{ existing_relation }};
-{% endif %}
+{# Step 2: Preserve Iceberg table and history. Never DROP — use TRUNCATE + INSERT
+   for existing tables, CREATE + INSERT for new tables.
+   Iceberg snapshots track each run; DROP destroys that history. #}
+{% set existing_iceberg = adapter.get_relation(database=relation.database, schema=relation.schema, identifier=relation.identifier) %}
+{% if existing_iceberg %}
 
-{# Step 2b: Create the table with explicit column definitions #}
+{# Existing table: TRUNCATE + INSERT (new Iceberg snapshot, history preserved) #}
+truncate table if exists {{ relation }};
+insert into {{ relation }}
+    {{ compiled_code }};
+
+{% else %}
+
+{# New table: CREATE with explicit columns + INSERT #}
 create iceberg table {{ relation }} (
     {%- for column in sql_columns -%}
-        {% if column.data_type == "FIXED" %}
-            {%- set data_type = "INT" -%}
-        {% elif "character varying" in column.data_type %}
-            {%- set data_type = "STRING" -%}
-        {% else %}
-            {%- set data_type = column.data_type -%}
-        {% endif %}
-        {{ adapter.quote(column.name.lower()) }} {{ data_type }}
+        {%- if column.is_string() -%}
+            {%- set col_type = "STRING" -%}
+        {%- elif column.data_type == "BOOLEAN" -%}
+            {%- set col_type = "BOOLEAN" -%}
+        {%- else -%}
+            {%- set col_type = column.data_type -%}
+        {%- endif -%}
+        {{ adapter.quote(column.name.lower()) }} {{ col_type }}
         {%- if not loop.last %}, {% endif -%}
     {% endfor -%}
 )
@@ -328,10 +335,10 @@ create iceberg table {{ relation }} (
 {% if table_tag -%} with tag ({{ table_tag }}) {%- endif %}
 {% if copy_grants -%} copy grants {%- endif %}
 ;
-
-{# Step 3: Insert data from the view (in regular DB) into the table (in CLD) #}
 insert into {{ relation }}
     {{ compiled_code }};
+
+{% endif %}
 
 {%- endmacro %}
 

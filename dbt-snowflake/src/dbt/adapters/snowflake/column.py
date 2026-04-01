@@ -33,7 +33,22 @@ class SnowflakeColumn(Column):
             "numeric",
             "decimal",
             "number",
+            "fixed",  # Snowflake's internal name for all NUMBER types
         ]
+
+    @property
+    def data_type(self) -> str:
+        # Snowflake reports all numeric types as FIXED in DESCRIBE output.
+        # Normalize to NUMBER for DDL generation (Iceberg doesn't understand FIXED).
+        # Default to (38,0) when precision/scale are missing — Snowflake's default
+        # for bare NUMBER, and Iceberg requires explicit precision.
+        if self.dtype.lower() == "fixed" and self.is_numeric():
+            precision = (
+                self.numeric_precision if self.numeric_precision is not None else 38
+            )
+            scale = self.numeric_scale if self.numeric_scale is not None else 0
+            return self.numeric_type("NUMBER", precision, scale)
+        return super().data_type
 
     def is_float(self):
         return self.dtype.lower() in [
