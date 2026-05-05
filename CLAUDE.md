@@ -1,10 +1,5 @@
 # dbt Adapters — Development Guide
 
-## Archivium Preflight Protocol
-
-Use `archivium-workflow:preflight-protocol` for the detailed org-wide rules. Do not leave local validation as ad hoc LLM command lists. If a change needs a local test, lint, smoke, or invariant command, add it to `.archivium/preflight.yml` and run it through `archivium-preflight`. Before handoff, run `archivium-preflight run --mode local --scope changed`; use `archivium-preflight inventory --mode local --scope all` to prove new commands are wired into the gate. Local preflight must not run remote-state Terraform init/plan/apply or state-aware validate.
-
-
 ## Monorepo Structure
 
 ```
